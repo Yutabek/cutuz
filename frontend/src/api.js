@@ -9,12 +9,19 @@ export async function api(path, options = {}) {
     },
   });
 
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Request failed" }));
-    throw new Error(error.error || error.details || "Request failed");
+  let data = null;
+
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
   }
 
-  return res.json();
+  if (!res.ok) {
+    throw new Error(data?.error || data?.details || "Request failed");
+  }
+
+  return data;
 }
 
 export function track(eventName, payload = {}) {
