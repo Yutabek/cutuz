@@ -1,0 +1,141 @@
+:root {
+  --bg: #0f0f10;
+  --panel: #19191b;
+  --card: #222225;
+  --text: #ffffff;
+  --muted: #b8b8bd;
+  --accent: #d99a2b;
+  --accent2: #f2bd55;
+  --border: rgba(255,255,255,0.09);
+  --danger: #ff6b6b;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Inter, Manrope, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; border: 0; }
+a { color: inherit; }
+
+.app {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: 16px;
+  padding-bottom: 32px;
+}
+
+.hero {
+  padding: 28px 18px;
+  border-radius: 28px;
+  background: radial-gradient(circle at 80% 0%, rgba(217,154,43,0.25), transparent 35%), linear-gradient(145deg, #1d1d20, #101011);
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 50px rgba(0,0,0,0.25);
+}
+.hero h1 { font-size: 34px; line-height: 1.05; margin: 14px 0; letter-spacing: -0.04em; }
+.hero p { color: var(--muted); margin: 0 0 20px; line-height: 1.5; }
+.pill { display: inline-flex; padding: 8px 12px; border-radius: 999px; background: rgba(217,154,43,0.13); color: var(--accent2); font-size: 13px; }
+.heroActions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.primary, .secondary, .chip, .back, .tabs button, .searchBox button {
+  border-radius: 16px;
+  padding: 12px 14px;
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.primary { background: var(--accent); color: #17120a; font-weight: 800; }
+.secondary { background: rgba(255,255,255,0.08); color: var(--text); border: 1px solid var(--border); }
+.full { width: 100%; }
+.back { background: transparent; color: var(--muted); padding-left: 0; }
+
+.quickStats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 14px 0;
+}
+.quickStats div { background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 14px; }
+.quickStats b { display: block; font-size: 20px; }
+.quickStats span { color: var(--muted); font-size: 13px; }
+
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.tabs button { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 16px;
+  margin: 14px 0;
+}
+.sectionTitle { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+h1, h2, h3, p { margin-top: 0; }
+h2 { margin-bottom: 10px; }
+.sectionTitle span, .muted { color: var(--muted); }
+.muted { display: flex; gap: 6px; align-items: center; line-height: 1.5; }
+
+.searchBox { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; background: var(--card); padding: 8px; border-radius: 18px; border: 1px solid var(--border); margin-bottom: 14px; }
+.searchBox input { background: transparent; border: 0; color: var(--text); outline: none; min-width: 0; }
+.searchBox button { background: var(--accent); color: #17120a; font-weight: 700; min-height: 38px; padding: 8px 10px; }
+.label { display: block; color: var(--muted); margin: 12px 0 8px; }
+.chips { display: flex; overflow-x: auto; gap: 8px; padding-bottom: 4px; }
+.chip { white-space: nowrap; background: var(--card); color: var(--muted); border: 1px solid var(--border); min-height: 40px; }
+.chip.active { background: var(--accent); color: #17120a; font-weight: 800; }
+
+.cards { display: grid; gap: 12px; margin-top: 14px; }
+.card { display: grid; grid-template-columns: 112px 1fr; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 22px; overflow: hidden; }
+.card img { width: 112px; height: 100%; object-fit: cover; }
+.cardBody { padding: 12px 12px 12px 0; }
+.row { display: flex; gap: 8px; align-items: center; }
+.between { justify-content: space-between; }
+.center { justify-content: center; }
+.card h3 { margin-bottom: 8px; }
+.rating { display: inline-flex; align-items: center; gap: 4px; color: var(--accent2); font-weight: 800; }
+.price { font-weight: 800; margin-bottom: 12px; }
+.cardActions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cardActions button { min-height: 40px; padding: 8px; }
+
+.profileHero { text-align: center; background: var(--panel); border: 1px solid var(--border); border-radius: 28px; padding: 18px; }
+.profileHero img { width: 100%; height: 280px; object-fit: cover; border-radius: 22px; margin-bottom: 16px; }
+.dot { width: 5px; height: 5px; background: var(--muted); border-radius: 50%; }
+.serviceRow { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding: 12px 0; }
+.serviceRow:last-child { border-bottom: 0; }
+.gallery { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.gallery img { width: 100%; height: 140px; object-fit: cover; border-radius: 18px; }
+.review { background: var(--card); padding: 12px; border-radius: 16px; color: var(--muted); }
+.link { color: var(--accent2); text-decoration: none; font-weight: 800; }
+
+.form { display: grid; gap: 10px; }
+.form label { color: var(--muted); font-size: 14px; }
+.form input, .form select, .form textarea {
+  width: 100%;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 13px 14px;
+  outline: none;
+}
+.form textarea { min-height: 90px; resize: vertical; }
+.notice { background: rgba(217,154,43,0.12); border: 1px solid rgba(217,154,43,0.25); color: var(--accent2); border-radius: 16px; padding: 12px; margin: 10px 0; }
+.notice.error { color: var(--danger); border-color: rgba(255,107,107,0.3); background: rgba(255,107,107,0.1); }
+.loading { color: var(--muted); padding: 16px; }
+.success { display: grid; align-content: center; text-align: center; gap: 12px; }
+.success svg { margin: 0 auto; color: var(--accent2); }
+.bookingBox { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 14px; }
+
+@media (max-width: 460px) {
+  .app { padding: 12px; }
+  .hero h1 { font-size: 30px; }
+  .card { grid-template-columns: 96px 1fr; }
+  .card img { width: 96px; }
+  .searchBox { grid-template-columns: auto 1fr; }
+  .searchBox button { grid-column: 1 / -1; width: 100%; }
+}
