@@ -1,3 +1,4 @@
+const API_URL = "https://cutuz.onrender.com";
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MapPin, Star, Search, Scissors, Calendar, UserRound, Phone, ArrowLeft, Send, CheckCircle2 } from 'lucide-react';
