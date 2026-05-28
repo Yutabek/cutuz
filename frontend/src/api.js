@@ -52,8 +52,8 @@ export async function fetchBarbers({ q = "", area = "", service = "" } = {}) {
   const params = new URLSearchParams();
 
   if (q) params.set("q", q);
-  if (area && area !== "Hammasi") params.set("area", area);
-  if (service && service !== "Hammasi") params.set("service", service);
+  if (area && area !== "all" && area !== "Hammasi") params.set("area", area);
+  if (service && service !== "all" && service !== "Hammasi") params.set("service", service);
 
   const query = params.toString();
   const json = await api(`/api/barbers${query ? `?${query}` : ""}`);

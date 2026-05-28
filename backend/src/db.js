@@ -1,7 +1,9 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'node:url';
 
 dotenv.config();
+dotenv.config({ path: fileURLToPath(new URL('./.env', import.meta.url)) });
 
 const { Pool } = pg;
 
@@ -43,6 +45,19 @@ export const get = async (sql, params = []) => {
 
 export async function initDb() {
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id BIGSERIAL PRIMARY KEY,
+      telegram_id BIGINT UNIQUE NOT NULL,
+      username TEXT,
+      first_name TEXT,
+      last_name TEXT,
+      phone TEXT,
+      role TEXT NOT NULL DEFAULT 'user',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS barbers (
       id BIGSERIAL PRIMARY KEY,
       name TEXT NOT NULL,
@@ -60,6 +75,15 @@ export async function initDb() {
       is_active INTEGER DEFAULT 1,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+
+  await pool.query(`
+    ALTER TABLE barbers
+      ADD COLUMN IF NOT EXISTS telegram_id BIGINT UNIQUE,
+      ADD COLUMN IF NOT EXISTS username TEXT,
+      ADD COLUMN IF NOT EXISTS phone TEXT,
+      ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'approved',
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()
   `);
 
   await pool.query(`
@@ -104,4 +128,8 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_barbers_telegram_id ON barbers(telegram_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_bookings_barber_time ON bookings(barber_id, date, time)');
 }

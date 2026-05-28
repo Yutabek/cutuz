@@ -2,28 +2,63 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { initDb, all, get, run } from './db.js';
+import { initDb, get, pool, run } from './db.js';
 import { createBot } from './bot.js';
 import { notifyAdmin } from './notify.js';
-import { validateTelegramInitData } from './telegramAuth.js';
+import { validateTelegramInitData, verifyTelegramInitData } from './telegramAuth.js';
 
 dotenv.config();
+dotenv.config({ path: fileURLToPath(new URL('./.env', import.meta.url)) });
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
 const FRONTEND_DEV_URL = process.env.FRONTEND_DEV_URL || 'http://localhost:5173';
 const WEBAPP_URL = process.env.WEBAPP_URL || FRONTEND_DEV_URL;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
+const allowedOrigins = [
+  WEBAPP_URL,
+  FRONTEND_DEV_URL,
+  'https://cutuz-frontend.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:3000',
+]
+  .filter(Boolean)
+  .map((url) => url.replace(/\/$/, ''));
 
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({ origin: [FRONTEND_DEV_URL, WEBAPP_URL], credentials: true }));
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+
+      const cleanOrigin = origin.replace(/\/$/, '');
+
+      if (allowedOrigins.includes(cleanOrigin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`CORS blocked: ${origin}`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: '1mb' }));
 
 const bot = createBot({ token: process.env.BOT_TOKEN, webAppUrl: WEBAPP_URL });
 
 function parseJsonArray(value, fallback = []) {
-  try { return value ? JSON.parse(value) : fallback; } catch { return fallback; }
+  if (Array.isArray(value)) return value;
+  if (!value) return fallback;
+  if (typeof value !== 'string') return fallback;
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return value.split(',').map((item) => item.trim()).filter(Boolean);
+  }
 }
 
 function mapBarber(row) {
@@ -37,34 +72,142 @@ function mapBarber(row) {
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
-app.post('/api/auth/telegram', (req, res) => {
-  const { initData } = req.body;
-  const result = validateTelegramInitData(initData, process.env.BOT_TOKEN);
-  res.json(result);
+app.post('/api/auth/telegram', async (req, res) => {
+  try {
+    const { initData, role = 'user', phone } = req.body;
+
+    if (!phone || phone.trim().length < 9) {
+      return res.status(400).json({ error: 'Telefon raqam majburiy' });
+    }
+
+    const safeRole = role === 'barber' ? 'barber' : 'user';
+    const tgUser = verifyTelegramInitData(initData, process.env.BOT_TOKEN);
+
+    if (!tgUser?.id) {
+      return res.status(401).json({ error: 'Telegram auth failed' });
+    }
+
+    const userResult = await pool.query(
+      `
+      INSERT INTO users (telegram_id, username, first_name, last_name, phone, role)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (telegram_id)
+      DO UPDATE SET
+        username = EXCLUDED.username,
+        first_name = EXCLUDED.first_name,
+        last_name = EXCLUDED.last_name,
+        phone = EXCLUDED.phone,
+        role = CASE
+          WHEN users.role = 'admin' THEN 'admin'
+          ELSE EXCLUDED.role
+        END
+      RETURNING *
+      `,
+      [
+        tgUser.id,
+        tgUser.username || null,
+        tgUser.first_name || null,
+        tgUser.last_name || null,
+        phone.trim(),
+        safeRole,
+      ]
+    );
+
+    const user = userResult.rows[0];
+
+    if (safeRole === 'barber') {
+      const fullName =
+        [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') ||
+        tgUser.username ||
+        'New Barber';
+
+      await pool.query(
+        `
+        INSERT INTO barbers (
+          telegram_id,
+          username,
+          name,
+          phone,
+          area,
+          rating,
+          experience_years,
+          starting_price,
+          services,
+          portfolio,
+          reviews,
+          status,
+          is_active
+        )
+        VALUES ($1, $2, $3, $4, '', 0, 0, 0, '', '[]', '[]', 'pending', 0)
+        ON CONFLICT (telegram_id)
+        DO UPDATE SET
+          username = EXCLUDED.username,
+          phone = EXCLUDED.phone
+        `,
+        [tgUser.id, tgUser.username || null, fullName, phone.trim()]
+      );
+    }
+
+    return res.json({
+      ok: true,
+      user,
+    });
+  } catch (error) {
+    console.error('POST /api/auth/telegram error:', error);
+    const isAuthError =
+      error.message?.includes('Telegram') ||
+      error.message?.includes('initData') ||
+      error.message?.includes('hash');
+
+    return res.status(isAuthError ? 401 : 500).json({
+      error: isAuthError ? 'Telegram auth failed' : 'Kirishda xatolik yuz berdi',
+    });
+  }
 });
 
 app.get('/api/barbers', async (req, res, next) => {
   try {
     const { area, service, q } = req.query;
     const params = [];
-    let sql = 'SELECT * FROM barbers WHERE is_active = 1';
+    const where = ['(status IS NULL OR status = $1 OR is_active = 1)'];
+    params.push('approved');
 
-    if (area && area !== 'all') {
-      sql += ' AND area = ?';
+    if (area && area !== 'all' && area !== 'Hammasi') {
       params.push(area);
+      where.push(`area = $${params.length}`);
     }
-    if (service && service !== 'all') {
-      sql += ' AND services LIKE ?';
+    if (service && service !== 'all' && service !== 'Hammasi') {
       params.push(`%${service}%`);
+      where.push(`services::text ILIKE $${params.length}`);
     }
     if (q) {
-      sql += ' AND (name LIKE ? OR bio LIKE ? OR area LIKE ?)';
-      params.push(`%${q}%`, `%${q}%`, `%${q}%`);
+      params.push(`%${q}%`);
+      where.push(`(name ILIKE $${params.length} OR bio ILIKE $${params.length} OR area ILIKE $${params.length} OR services::text ILIKE $${params.length})`);
     }
-    sql += ' ORDER BY rating DESC, starting_price ASC';
 
-    const rows = await all(sql, params);
-    res.json(rows.map(mapBarber));
+    const sql = `
+      SELECT
+        id,
+        name,
+        area,
+        rating,
+        experience_years,
+        starting_price,
+        services,
+        bio,
+        instagram,
+        location_url,
+        photo_url,
+        portfolio,
+        reviews
+      FROM barbers
+      WHERE ${where.join(' AND ')}
+      ORDER BY rating DESC NULLS LAST, starting_price ASC NULLS LAST, id DESC
+      LIMIT 50
+    `;
+
+    const result = await pool.query(sql, params);
+    res.json({ ok: true, data: result.rows.map(mapBarber) });
   } catch (err) { next(err); }
 });
 
@@ -81,7 +224,7 @@ const bookingSchema = z.object({
   initData: z.string().optional(),
   telegramUserId: z.string().optional(),
   telegramUsername: z.string().optional(),
-  barberId: z.number(),
+  barberId: z.coerce.number(),
   service: z.string().min(2),
   date: z.string().min(4),
   time: z.string().min(2),
@@ -92,7 +235,17 @@ const bookingSchema = z.object({
 
 app.post('/api/bookings', async (req, res, next) => {
   try {
-    const data = bookingSchema.parse(req.body);
+    const body = {
+      ...req.body,
+      telegramUserId: req.body.telegramUserId || req.body.telegram_user_id,
+      telegramUsername: req.body.telegramUsername || req.body.telegram_username,
+      barberId: req.body.barberId || req.body.barber_id,
+      service: req.body.service,
+      date: req.body.date || req.body.booking_date,
+      time: req.body.time || req.body.booking_time,
+      customerName: req.body.customerName || req.body.customer_name,
+    };
+    const data = bookingSchema.parse(body);
     const barber = await get('SELECT * FROM barbers WHERE id = ? AND is_active = 1', [data.barberId]);
     if (!barber) return res.status(404).json({ error: 'Barber not found' });
 
@@ -145,14 +298,17 @@ const barberApplicationSchema = z.object({
   phone: z.string().min(7),
   area: z.string().min(2),
   services: z.string().min(2),
-  startingPrice: z.number().optional(),
+  startingPrice: z.coerce.number().optional(),
   instagram: z.string().optional(),
   comment: z.string().optional()
 });
 
 app.post('/api/barber-applications', async (req, res, next) => {
   try {
-    const data = barberApplicationSchema.parse(req.body);
+    const data = barberApplicationSchema.parse({
+      ...req.body,
+      startingPrice: req.body.startingPrice || req.body.starting_price,
+    });
     const result = await run(`INSERT INTO barber_applications
       (name, phone, area, services, starting_price, instagram, comment)
       VALUES (?, ?, ?, ?, ?, ?, ?)`,

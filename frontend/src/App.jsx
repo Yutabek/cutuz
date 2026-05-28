@@ -9,7 +9,7 @@ import {
   Send,
   CheckCircle2,
 } from "lucide-react";
-import { api, track } from "./api.js";
+import { API_URL, api, fetchBarbers, track } from "./api.js";
 
 const AREAS = [
   "all",
@@ -48,6 +48,15 @@ function getTodayPlus(days) {
 
 function getTgUser() {
   return window.Telegram?.WebApp?.initDataUnsafe?.user || null;
+}
+
+function getStoredUser() {
+  try {
+    const raw = localStorage.getItem("cutuz_user");
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 function toArray(value) {
@@ -90,7 +99,10 @@ function normalizeBarber(barber) {
 }
 
 function App() {
-  const [page, setPage] = useState("home");
+  const [user, setUser] = useState(getStoredUser);
+  const [page, setPage] = useState(() =>
+    getStoredUser()?.role === "barber" ? "barber-dashboard" : "home"
+  );
   const [barbers, setBarbers] = useState([]);
   const [selectedBarber, setSelectedBarber] = useState(null);
   const [area, setArea] = useState("all");
@@ -101,8 +113,8 @@ function App() {
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
-    tg?.ready();
-    tg?.expand();
+    tg?.ready?.();
+    tg?.expand?.();
     track("mini_app_opened");
   }, []);
 
@@ -116,26 +128,13 @@ function App() {
     setNotice("");
 
     try {
-      const params = new URLSearchParams();
+      const data = await fetchBarbers({
+        q: q.trim(),
+        area: area === "all" ? "" : area,
+        service: service === "all" ? "" : service,
+      });
 
-      if (area && area !== "all") {
-        params.set("area", area);
-      }
-
-      if (service && service !== "all") {
-        params.set("service", service);
-      }
-
-      if (q && q.trim()) {
-        params.set("q", q.trim());
-      }
-
-      const query = params.toString();
-      const data = await api(query ? `/api/barbers?${query}` : "/api/barbers");
-
-      const normalized = Array.isArray(data)
-        ? data.map(normalizeBarber)
-        : [];
+      const normalized = data.map(normalizeBarber);
 
       setBarbers(normalized);
     } catch (err) {
@@ -154,6 +153,25 @@ function App() {
   function openBooking(barber) {
     setSelectedBarber(barber);
     setPage("booking");
+  }
+
+  function handleLogin(nextUser) {
+    setUser(nextUser);
+    setPage(nextUser.role === "barber" ? "barber-dashboard" : "home");
+  }
+
+  function logout() {
+    localStorage.removeItem("cutuz_user");
+    setUser(null);
+    setPage("home");
+  }
+
+  if (!user) {
+    return <Login onLogin={handleLogin} />;
+  }
+
+  if (page === "barber-dashboard") {
+    return <BarberDashboard user={user} onHome={() => setPage("home")} onLogout={logout} />;
   }
 
   if (page === "profile" && selectedBarber) {
@@ -208,9 +226,15 @@ function App() {
           >
             Barber topish
           </button>
-          <button className="secondary" onClick={() => setPage("barberApply")}>
-            Barberman
-          </button>
+          {user.role === "barber" ? (
+            <button className="secondary" onClick={() => setPage("barber-dashboard")}>
+              Barber kabinet
+            </button>
+          ) : (
+            <button className="secondary" onClick={() => setPage("barberApply")}>
+              Barber bo‘lish
+            </button>
+          )}
         </div>
       </section>
 
@@ -231,7 +255,7 @@ function App() {
 
       <section className="tabs">
         <button onClick={() => setPage("myBooking")}>Mening bookingim</button>
-        <button onClick={() => setPage("barberApply")}>Barber qo‘shish</button>
+        <button onClick={logout}>Chiqish</button>
       </section>
 
       <section id="list" className="panel">
@@ -297,6 +321,137 @@ function App() {
         {!loading && !notice && barbers.length === 0 && (
           <p className="muted">Hozircha barber topilmadi.</p>
         )}
+      </section>
+    </main>
+  );
+}
+
+function Login({ onLogin }) {
+  const [phone, setPhone] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [loadingRole, setLoadingRole] = useState("");
+  const isTelegram = Boolean(window.Telegram?.WebApp?.initData);
+
+  async function login(role) {
+    setAuthError("");
+
+    if (!phone.trim()) {
+      setAuthError("Telefon raqam majburiy");
+      return;
+    }
+
+    const tg = window.Telegram?.WebApp;
+    const initData = tg?.initData || "";
+
+    if (!initData && import.meta.env.PROD) {
+      setAuthError("Ilovani Telegram bot orqali oching");
+      return;
+    }
+
+    setLoadingRole(role);
+
+    try {
+      const res = await fetch(`${API_URL}/api/auth/telegram`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          initData,
+          role,
+          phone: phone.trim(),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setAuthError(data.error || "Kirishda xatolik");
+        return;
+      }
+
+      localStorage.setItem("cutuz_user", JSON.stringify(data.user));
+      onLogin(data.user);
+    } catch (err) {
+      setAuthError(err.message || "Kirishda xatolik");
+    } finally {
+      setLoadingRole("");
+    }
+  }
+
+  return (
+    <main className="app loginScreen">
+      {!isTelegram && (
+        <div className="notice">
+          Test rejimi: ilova Telegram tashqarisida ochilgan
+        </div>
+      )}
+
+      <section className="hero">
+        <div className="pill">CUTUZ Mini App</div>
+        <h1>Telefon raqam bilan kiring</h1>
+        <p>Booking va barber kabineti Telegram account orqali ishlaydi.</p>
+      </section>
+
+      <section className="panel">
+        <form className="form" onSubmit={(e) => e.preventDefault()}>
+          <label>Telefon raqam</label>
+          <input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+998 90 123 45 67"
+            required
+          />
+
+          {authError && <div className="notice error">{authError}</div>}
+
+          <button
+            className="primary full"
+            type="button"
+            disabled={Boolean(loadingRole)}
+            onClick={() => login("user")}
+          >
+            {loadingRole === "user" ? "Kirilmoqda..." : "Foydalanuvchi sifatida kirish"}
+          </button>
+
+          <button
+            className="secondary full"
+            type="button"
+            disabled={Boolean(loadingRole)}
+            onClick={() => login("barber")}
+          >
+            {loadingRole === "barber" ? "Kirilmoqda..." : "Barber sifatida kirish"}
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
+function BarberDashboard({ user, onHome, onLogout }) {
+  return (
+    <main className="app">
+      <section className="hero">
+        <div className="pill">Barber kabinet</div>
+        <h1>{user?.first_name || user?.username || "Barber"} profili</h1>
+        <p>
+          Profilingiz pending holatda bo‘lsa, admin tasdiqlagandan keyin umumiy
+          ro‘yxatda chiqadi.
+        </p>
+      </section>
+
+      <section className="panel">
+        <h2>Account</h2>
+        <p className="muted">Role: {user?.role || "barber"}</p>
+        <p className="muted">Telefon: {user?.phone || "-"}</p>
+        <div className="cardActions">
+          <button className="primary" onClick={onHome}>
+            Barberlarni ko‘rish
+          </button>
+          <button className="secondary" onClick={onLogout}>
+            Chiqish
+          </button>
+        </div>
       </section>
     </main>
   );
