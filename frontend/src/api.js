@@ -1,55 +1,25 @@
-const API_URL = "https://cutuz.onrender.com";
+const API_URL =
+  import.meta.env.VITE_API_URL || "https://cutuz.onrender.com";
 
-export async function api(path, options = {}) {
-  const url = `${API_URL}${path}`;
+async function fetchBarbers({ q = "", area = "", service = "" } = {}) {
+  const params = new URLSearchParams();
 
-  console.log("API REQUEST:", url);
+  if (q) params.set("q", q);
+  if (area && area !== "Hammasi") params.set("area", area);
+  if (service && service !== "Hammasi") params.set("service", service);
 
-  try {
-    const res = await fetch(url, {
-      ...options,
-      mode: "cors",
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {}),
-      },
-    });
+  const url = `${API_URL.replace(/\/$/, "")}/api/barbers${
+    params.toString() ? `?${params.toString()}` : ""
+  }`;
 
+  const res = await fetch(url);
+
+  if (!res.ok) {
     const text = await res.text();
-
-    let data = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = text;
-    }
-
-    if (!res.ok) {
-      console.error("API ERROR RESPONSE:", res.status, data);
-      throw new Error(
-        typeof data === "object"
-          ? data?.error || data?.details || `API error ${res.status}`
-          : `API error ${res.status}: ${data}`
-      );
-    }
-
-    return data;
-  } catch (error) {
-    console.error("API FETCH FAILED:", url, error);
-    throw new Error(`Fetch failed: ${url}`);
+    throw new Error(`Barber API error ${res.status}: ${text}`);
   }
-}
 
-export function track(eventName, payload = {}) {
-  const tg = window.Telegram?.WebApp;
-  const userId = tg?.initDataUnsafe?.user?.id?.toString();
+  const json = await res.json();
 
-  return api("/api/events", {
-    method: "POST",
-    body: JSON.stringify({
-      telegram_user_id: userId,
-      event_name: eventName,
-      payload,
-    }),
-  }).catch(() => null);
+  return Array.isArray(json) ? json : json.data || [];
 }
