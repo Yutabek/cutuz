@@ -429,21 +429,136 @@ function Login({ onLogin }) {
 }
 
 function BarberDashboard({ user, onHome, onLogout }) {
+  const telegramId =
+    user?.telegram_id || user?.telegramId || getTgUser()?.id || "";
+  const [profile, setProfile] = useState(null);
+  const [form, setForm] = useState({
+    name: "",
+    area: "",
+    services: "",
+    starting_price: 0,
+    experience_years: 0,
+    bio: "",
+    instagram: "",
+    location_url: "",
+    photo_url: "",
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadProfile() {
+      setLoading(true);
+      setError("");
+
+      try {
+        if (!telegramId) {
+          throw new Error("Telegram ID topilmadi. Qayta login qiling.");
+        }
+
+        const result = await api(`/api/barbers/me?telegram_id=${telegramId}`);
+        const nextProfile = normalizeBarber(result?.data || result);
+
+        if (!alive) return;
+
+        setProfile(nextProfile);
+        setForm({
+          name: nextProfile.name || "",
+          area: nextProfile.area || "",
+          services: nextProfile.services.join(", "),
+          starting_price: Number(nextProfile.starting_price || 0),
+          experience_years: Number(nextProfile.experience_years || 0),
+          bio: nextProfile.bio || "",
+          instagram: nextProfile.instagram || "",
+          location_url: nextProfile.location_url || "",
+          photo_url: nextProfile.photo_url || "",
+        });
+      } catch (err) {
+        if (alive) setError(err.message || "Profilni yuklab bo‘lmadi");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+
+    loadProfile();
+
+    return () => {
+      alive = false;
+    };
+  }, [telegramId]);
+
+  function update(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function saveProfile(e) {
+    e.preventDefault();
+    setSaving(true);
+    setMessage("");
+    setError("");
+
+    try {
+      if (!telegramId) {
+        throw new Error("Telegram ID topilmadi. Qayta login qiling.");
+      }
+
+      const result = await api("/api/barbers/me", {
+        method: "PATCH",
+        body: JSON.stringify({
+          telegram_id: telegramId,
+          name: form.name,
+          area: form.area,
+          services: form.services,
+          starting_price: Number(form.starting_price || 0),
+          experience_years: Number(form.experience_years || 0),
+          bio: form.bio,
+          instagram: form.instagram,
+          location_url: form.location_url,
+          photo_url: form.photo_url,
+        }),
+      });
+
+      const nextProfile = normalizeBarber(result?.data || result);
+      setProfile(nextProfile);
+      setForm((prev) => ({
+        ...prev,
+        services: nextProfile.services.join(", "),
+      }));
+      setMessage("Profil saqlandi");
+    } catch (err) {
+      setError(err.message || "Profilni saqlab bo‘lmadi");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const status = profile?.status || "pending";
+  const statusText = {
+    pending: "Profilingiz admin tasdig‘ini kutmoqda",
+    approved: "Profilingiz tasdiqlangan va umumiy ro‘yxatda ko‘rinadi",
+    rejected: "Profilingiz rad etilgan",
+  }[status] || `Profil statusi: ${status}`;
+
   return (
     <main className="app">
       <section className="hero">
         <div className="pill">Barber kabinet</div>
-        <h1>{user?.first_name || user?.username || "Barber"} profili</h1>
-        <p>
-          Profilingiz pending holatda bo‘lsa, admin tasdiqlagandan keyin umumiy
-          ro‘yxatda chiqadi.
-        </p>
+        <h1>{profile?.name || user?.first_name || user?.username || "Barber"} profili</h1>
+        <p>{loading ? "Profil yuklanmoqda..." : statusText}</p>
       </section>
 
       <section className="panel">
         <h2>Account</h2>
         <p className="muted">Role: {user?.role || "barber"}</p>
-        <p className="muted">Telefon: {user?.phone || "-"}</p>
+        <p className="muted">Telegram ID: {telegramId || "-"}</p>
+        <p className="muted">Telefon: {profile?.phone || user?.phone || "-"}</p>
+        {profile && <p className="muted">Status: {profile.status} · Active: {String(profile.is_active)}</p>}
+        {error && <div className="notice error">{error}</div>}
+        {message && <div className="notice">{message}</div>}
         <div className="cardActions">
           <button className="primary" onClick={onHome}>
             Barberlarni ko‘rish
@@ -452,6 +567,82 @@ function BarberDashboard({ user, onHome, onLogout }) {
             Chiqish
           </button>
         </div>
+      </section>
+
+      <section className="panel">
+        <h2>Profil ma’lumotlari</h2>
+        {loading ? (
+          <div className="loading">Yuklanmoqda...</div>
+        ) : (
+          <form className="form" onSubmit={saveProfile}>
+            <label>Ism yoki salon nomi</label>
+            <input
+              value={form.name}
+              onChange={(e) => update("name", e.target.value)}
+              required
+            />
+
+            <label>Hudud</label>
+            <input
+              value={form.area}
+              onChange={(e) => update("area", e.target.value)}
+              placeholder="Chilonzor"
+            />
+
+            <label>Xizmatlar</label>
+            <input
+              value={form.services}
+              onChange={(e) => update("services", e.target.value)}
+              placeholder="Haircut, Beard trim"
+            />
+
+            <label>Boshlang‘ich narx</label>
+            <input
+              type="number"
+              value={form.starting_price}
+              onChange={(e) => update("starting_price", e.target.value)}
+            />
+
+            <label>Tajriba yili</label>
+            <input
+              type="number"
+              value={form.experience_years}
+              onChange={(e) => update("experience_years", e.target.value)}
+            />
+
+            <label>Bio</label>
+            <textarea
+              value={form.bio}
+              onChange={(e) => update("bio", e.target.value)}
+              placeholder="Qisqa ta’rif"
+            />
+
+            <label>Instagram</label>
+            <input
+              value={form.instagram}
+              onChange={(e) => update("instagram", e.target.value)}
+              placeholder="@username"
+            />
+
+            <label>Location URL</label>
+            <input
+              value={form.location_url}
+              onChange={(e) => update("location_url", e.target.value)}
+              placeholder="https://maps.google.com/..."
+            />
+
+            <label>Photo URL</label>
+            <input
+              value={form.photo_url}
+              onChange={(e) => update("photo_url", e.target.value)}
+              placeholder="https://..."
+            />
+
+            <button className="primary full" disabled={saving}>
+              {saving ? "Saqlanmoqda..." : "Profilni saqlash"}
+            </button>
+          </form>
+        )}
       </section>
     </main>
   );

@@ -70,6 +70,59 @@ function mapBarber(row) {
   };
 }
 
+function normalizeServicesInput(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+
+  if (!value) return [];
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+
+    if (!trimmed) return [];
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item).trim()).filter(Boolean);
+      }
+    } catch {
+      // Keep comma-separated input support for the simple MVP form.
+    }
+
+    return trimmed.split(',').map((item) => item.trim()).filter(Boolean);
+  }
+
+  return [];
+}
+
+function selectBarberProfileSql(whereClause) {
+  return `
+    SELECT
+      id,
+      telegram_id,
+      username,
+      name,
+      phone,
+      area,
+      status,
+      is_active,
+      rating,
+      experience_years,
+      starting_price,
+      services,
+      bio,
+      instagram,
+      location_url,
+      photo_url,
+      portfolio,
+      reviews
+    FROM barbers
+    WHERE ${whereClause}
+  `;
+}
+
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.post('/api/auth/telegram', async (req, res) => {
@@ -169,7 +222,7 @@ app.get('/api/barbers', async (req, res, next) => {
   try {
     const { area, service, q } = req.query;
     const params = [];
-    const where = ['(status IS NULL OR status = $1 OR is_active = 1)'];
+    const where = ['status = $1', 'is_active = 1'];
     params.push('approved');
 
     if (area && area !== 'all' && area !== 'Hammasi') {
@@ -211,9 +264,157 @@ app.get('/api/barbers', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+app.get('/api/barbers/me', async (req, res, next) => {
+  try {
+    const telegramId = req.query.telegram_id;
+
+    if (!telegramId) {
+      return res.status(400).json({ error: 'telegram_id is required' });
+    }
+
+    const result = await pool.query(
+      selectBarberProfileSql('telegram_id = $1 LIMIT 1'),
+      [telegramId]
+    );
+
+    if (!result.rows[0]) {
+      return res.status(404).json({ error: 'Barber profile not found' });
+    }
+
+    return res.json({ ok: true, data: mapBarber(result.rows[0]) });
+  } catch (err) { next(err); }
+});
+
+const barberProfileSchema = z.object({
+  telegram_id: z.coerce.number(),
+  name: z.string().min(2).nullable().optional(),
+  area: z.string().nullable().optional(),
+  services: z.union([z.string(), z.array(z.string())]).optional(),
+  starting_price: z.coerce.number().min(0).optional(),
+  experience_years: z.coerce.number().min(0).optional(),
+  bio: z.string().nullable().optional(),
+  instagram: z.string().nullable().optional(),
+  location_url: z.string().nullable().optional(),
+  photo_url: z.string().nullable().optional(),
+});
+
+app.patch('/api/barbers/me', async (req, res, next) => {
+  try {
+    const data = barberProfileSchema.parse(req.body);
+    const updates = [];
+    const params = [];
+
+    const assign = (column, value) => {
+      params.push(value);
+      updates.push(`${column} = $${params.length}`);
+    };
+
+    if (data.name !== undefined) assign('name', data.name?.trim() || 'New Barber');
+    if (data.area !== undefined) assign('area', data.area?.trim() || '');
+    if (data.services !== undefined) assign('services', JSON.stringify(normalizeServicesInput(data.services)));
+    if (data.starting_price !== undefined) assign('starting_price', data.starting_price);
+    if (data.experience_years !== undefined) assign('experience_years', data.experience_years);
+    if (data.bio !== undefined) assign('bio', data.bio?.trim() || null);
+    if (data.instagram !== undefined) assign('instagram', data.instagram?.trim() || null);
+    if (data.location_url !== undefined) assign('location_url', data.location_url?.trim() || null);
+    if (data.photo_url !== undefined) assign('photo_url', data.photo_url?.trim() || null);
+
+    if (!updates.length) {
+      return res.status(400).json({ error: 'No profile fields to update' });
+    }
+
+    params.push(data.telegram_id);
+
+    const result = await pool.query(
+      `
+      UPDATE barbers
+      SET ${updates.join(', ')}
+      WHERE telegram_id = $${params.length}
+      RETURNING
+        id,
+        telegram_id,
+        username,
+        name,
+        phone,
+        area,
+        status,
+        is_active,
+        rating,
+        experience_years,
+        starting_price,
+        services,
+        bio,
+        instagram,
+        location_url,
+        photo_url,
+        portfolio,
+        reviews
+      `,
+      params
+    );
+
+    if (!result.rows[0]) {
+      return res.status(404).json({ error: 'Barber profile not found' });
+    }
+
+    return res.json({ ok: true, data: mapBarber(result.rows[0]) });
+  } catch (err) { next(err); }
+});
+
+app.patch('/api/admin/barbers/:id/approve', async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `
+      UPDATE barbers
+      SET status = 'approved', is_active = 1
+      WHERE id = $1
+      RETURNING
+        id,
+        telegram_id,
+        username,
+        name,
+        phone,
+        area,
+        status,
+        is_active,
+        rating,
+        experience_years,
+        starting_price,
+        services,
+        bio,
+        instagram,
+        location_url,
+        photo_url,
+        portfolio,
+        reviews
+      `,
+      [req.params.id]
+    );
+
+    if (!result.rows[0]) {
+      return res.status(404).json({ error: 'Barber not found' });
+    }
+
+    return res.json({ ok: true, data: mapBarber(result.rows[0]) });
+  } catch (err) { next(err); }
+});
+
+app.patch('/api/admin/barbers/:id/reject', async (req, res, next) => {
+  try {
+    await pool.query('UPDATE barbers SET status = $1, is_active = 0 WHERE id = $2', ['rejected', req.params.id]);
+    const result = await pool.query(selectBarberProfileSql('id = $1'), [req.params.id]);
+
+    if (!result.rows[0]) {
+      return res.status(404).json({ error: 'Barber not found' });
+    }
+
+    return res.json({ ok: true, data: mapBarber(result.rows[0]) });
+  } catch (err) { next(err); }
+});
+
 app.get('/api/barbers/:id', async (req, res, next) => {
   try {
-    const row = await get('SELECT * FROM barbers WHERE id = ? AND is_active = 1', [req.params.id]);
+    const row = await get('SELECT * FROM barbers WHERE id = ? AND status = ? AND is_active = 1', [req.params.id, 'approved']);
     if (!row) return res.status(404).json({ error: 'Barber not found' });
     await run('INSERT INTO events (telegram_user_id, event_name, payload) VALUES (?, ?, ?)', [req.query.tgUserId || null, 'barber_profile_view', JSON.stringify({ barberId: req.params.id })]);
     res.json(mapBarber(row));
