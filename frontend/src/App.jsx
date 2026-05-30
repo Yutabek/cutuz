@@ -124,6 +124,14 @@ function getStatusText(status) {
   }[status] || `Profil statusi: ${status || "pending"}`;
 }
 
+function isProfileIncomplete(profile) {
+  return (
+    !profile?.area ||
+    !toArray(profile?.services).length ||
+    Number(profile?.starting_price || 0) <= 0
+  );
+}
+
 function BarberDashboardShortcut({ user, onOpen }) {
   if (user?.role !== "barber") return null;
 
@@ -191,9 +199,27 @@ function App() {
     setPage("booking");
   }
 
-  function handleLogin(nextUser) {
+  async function handleLogin(nextUser) {
     setUser(nextUser);
-    setPage(nextUser.role === "barber" ? "barber-dashboard" : "home");
+
+    if (nextUser.role !== "barber") {
+      setPage("home");
+      return;
+    }
+
+    const telegramId = nextUser.telegram_id || nextUser.telegramId || getTgUser()?.id;
+
+    if (!telegramId) {
+      setPage("barber-profile-edit");
+      return;
+    }
+
+    try {
+      const profile = await fetchMyBarberProfile(telegramId);
+      setPage(isProfileIncomplete(profile) ? "barber-profile-edit" : "barber-dashboard");
+    } catch {
+      setPage("barber-profile-edit");
+    }
   }
 
   function logout() {
@@ -216,7 +242,25 @@ function App() {
   if (page === "barber-dashboard") {
     return (
       <>
-        <BarberDashboard user={user} onHome={() => setPage("home")} onLogout={logout} />
+        <BarberDashboard
+          user={user}
+          onEdit={() => setPage("barber-profile-edit")}
+          onHome={() => setPage("home")}
+          onLogout={logout}
+        />
+        {shortcut}
+      </>
+    );
+  }
+
+  if (page === "barber-profile-edit") {
+    return (
+      <>
+        <BarberProfileEdit
+          user={user}
+          onBack={() => setPage("barber-dashboard")}
+          onSaved={() => setPage("barber-dashboard")}
+        />
         {shortcut}
       </>
     );
@@ -507,29 +551,15 @@ function Login({ onLogin }) {
   );
 }
 
-function BarberDashboard({ user, onHome, onLogout }) {
+function BarberDashboard({ user, onEdit, onHome, onLogout }) {
   const isBarber = user?.role === "barber";
   const telegramId =
     isBarber ? user?.telegram_id || user?.telegramId || getTgUser()?.id || "" : "";
   const [profile, setProfile] = useState(null);
-  const [form, setForm] = useState({
-    name: "",
-    area: "",
-    services: "",
-    starting_price: 0,
-    experience_years: 0,
-    bio: "",
-    instagram: "",
-    location_url: "",
-    photo_url: "",
-    portfolio: "",
-  });
   const [loading, setLoading] = useState(true);
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [bookings, setBookings] = useState([]);
   const [bookingsError, setBookingsError] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -557,18 +587,6 @@ function BarberDashboard({ user, onHome, onLogout }) {
         setProfile(nextProfile);
         setBookings(bookingRows);
         setBookingsError("");
-        setForm({
-          name: nextProfile.name || "",
-          area: nextProfile.area || "",
-          services: nextProfile.services.join(", "),
-          starting_price: Number(nextProfile.starting_price || 0),
-          experience_years: Number(nextProfile.experience_years || 0),
-          bio: nextProfile.bio || "",
-          instagram: nextProfile.instagram || "",
-          location_url: nextProfile.location_url || "",
-          photo_url: nextProfile.photo_url || "",
-          portfolio: arrayToText(nextProfile.portfolio),
-        });
       } catch (err) {
         if (alive) setError(err.message || "Profilni yuklab bo‘lmadi");
       } finally {
@@ -582,10 +600,6 @@ function BarberDashboard({ user, onHome, onLogout }) {
       alive = false;
     };
   }, [isBarber, telegramId]);
-
-  function update(key, value) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
 
   async function loadBookings() {
     setBookingsLoading(true);
@@ -602,60 +616,6 @@ function BarberDashboard({ user, onHome, onLogout }) {
       setBookingsError(err.message || "Bookinglarni yuklab bo‘lmadi");
     } finally {
       setBookingsLoading(false);
-    }
-  }
-
-  async function saveProfile(e) {
-    e.preventDefault();
-
-    if (profile?.status === "rejected") {
-      setError("Rad etilgan profilni tahrirlash uchun admin bilan bog‘laning.");
-      return;
-    }
-
-    setSaving(true);
-    setMessage("");
-    setError("");
-
-    try {
-      if (!telegramId) {
-        throw new Error("Telegram ID topilmadi. Qayta login qiling.");
-      }
-
-      const result = await updateMyBarberProfile({
-        telegram_id: telegramId,
-        name: form.name,
-        area: form.area,
-        services: form.services,
-        starting_price: Number(form.starting_price || 0),
-        experience_years: Number(form.experience_years || 0),
-        bio: form.bio,
-        instagram: form.instagram,
-        location_url: form.location_url,
-        photo_url: form.photo_url,
-        portfolio: form.portfolio,
-      });
-
-      const nextProfile = normalizeBarber(result);
-      setProfile(nextProfile);
-      setForm((prev) => ({
-        ...prev,
-        name: nextProfile.name || "",
-        area: nextProfile.area || "",
-        services: nextProfile.services.join(", "),
-        starting_price: Number(nextProfile.starting_price || 0),
-        experience_years: Number(nextProfile.experience_years || 0),
-        bio: nextProfile.bio || "",
-        instagram: nextProfile.instagram || "",
-        location_url: nextProfile.location_url || "",
-        photo_url: nextProfile.photo_url || "",
-        portfolio: arrayToText(nextProfile.portfolio),
-      }));
-      setMessage("Profil saqlandi");
-    } catch (err) {
-      setError(err.message || "Profilni saqlab bo‘lmadi");
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -701,7 +661,6 @@ function BarberDashboard({ user, onHome, onLogout }) {
           <p className="muted">Profil ma’lumotlari read-only. Qayta ko‘rib chiqish uchun admin bilan bog‘laning.</p>
         )}
         {error && <div className="notice error">{error}</div>}
-        {message && <div className="notice">{message}</div>}
         <div className="cardActions">
           <button className="primary" onClick={onHome}>
             Barberlarni ko‘rish
@@ -713,7 +672,250 @@ function BarberDashboard({ user, onHome, onLogout }) {
       </section>
 
       <section className="panel">
-        <h2>Profil ma’lumotlari</h2>
+        <div className="sectionTitle">
+          <h2>Profil</h2>
+          <button className="secondary compact" onClick={onEdit}>
+            Profilni tahrirlash
+          </button>
+        </div>
+        {loading ? (
+          <div className="loading">Yuklanmoqda...</div>
+        ) : (
+          <div className="bookingBox">
+            <b>{profile?.name || "Nomi to‘ldirilmagan"}</b>
+            <p>Hudud: {profile?.area || "To‘ldirilmagan"}</p>
+            <p>
+              Xizmatlar:{" "}
+              {profile?.services?.length ? profile.services.join(", ") : "To‘ldirilmagan"}
+            </p>
+            <p>Narx: {formatPrice(profile?.starting_price)}</p>
+            <p>Tajriba: {profile?.experience_years || 0} yil</p>
+            {profile?.instagram && <p>Instagram: {profile.instagram}</p>}
+            {profile?.location_url && (
+              <a className="link" href={profile.location_url} target="_blank" rel="noreferrer">
+                Lokatsiyani ochish
+              </a>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="sectionTitle">
+          <h2>Portfolio</h2>
+          <button className="secondary compact" onClick={onEdit}>
+            Portfolio tahrirlash
+          </button>
+        </div>
+        {profile?.portfolio?.length ? (
+          <div className="gallery">
+            {profile.portfolio.map((src, i) => (
+              <img key={src || i} src={src} alt={`portfolio ${i + 1}`} />
+            ))}
+          </div>
+        ) : (
+          <p className="muted">Portfolio rasmlari hali qo‘shilmagan.</p>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="sectionTitle">
+          <h2>Bookinglar</h2>
+          <button className="secondary compact" onClick={loadBookings} disabled={bookingsLoading}>
+            {bookingsLoading ? "Yuklanmoqda..." : "Yangilash"}
+          </button>
+        </div>
+
+        {bookingsError && <div className="notice error">{bookingsError}</div>}
+
+        {bookingsLoading ? (
+          <div className="loading">Bookinglar yuklanmoqda...</div>
+        ) : bookings.length ? (
+          <div className="cards">
+            {bookings.map((booking) => (
+              <div className="bookingBox" key={booking.id}>
+                <b>{booking.customer_name || "Mijoz"}</b>
+                <p>{booking.service || "Xizmat ko‘rsatilmagan"}</p>
+                <p>
+                  <Calendar size={15} /> {booking.date || "-"} · {booking.time || "-"}
+                </p>
+                <p>Telefon: {booking.phone || "-"}</p>
+                <p>Status: <b>{booking.status || "waiting_confirmation"}</b></p>
+                {booking.telegram_username && <p>Telegram: @{booking.telegram_username}</p>}
+                {booking.comment && <p>Izoh: {booking.comment}</p>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">Hozircha bookinglar yo‘q.</p>
+        )}
+      </section>
+    </main>
+  );
+}
+
+function BarberProfileEdit({ user, onBack, onSaved }) {
+  const isBarber = user?.role === "barber";
+  const telegramId =
+    isBarber ? user?.telegram_id || user?.telegramId || getTgUser()?.id || "" : "";
+  const [profile, setProfile] = useState(null);
+  const [form, setForm] = useState({
+    name: "",
+    area: "",
+    services: "",
+    starting_price: 0,
+    experience_years: 0,
+    bio: "",
+    instagram: "",
+    location_url: "",
+    photo_url: "",
+    portfolio: "",
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadProfile() {
+      setLoading(true);
+      setError("");
+
+      try {
+        if (!isBarber) {
+          throw new Error("Barber sifatida kirishingiz kerak.");
+        }
+
+        if (!telegramId) {
+          throw new Error("Telegram ID topilmadi. Qayta login qiling.");
+        }
+
+        const result = await fetchMyBarberProfile(telegramId);
+        const nextProfile = normalizeBarber(result);
+
+        if (!alive) return;
+
+        setProfile(nextProfile);
+        setForm({
+          name: nextProfile.name || "",
+          area: nextProfile.area || "",
+          services: nextProfile.services.join(", "),
+          starting_price: Number(nextProfile.starting_price || 0),
+          experience_years: Number(nextProfile.experience_years || 0),
+          bio: nextProfile.bio || "",
+          instagram: nextProfile.instagram || "",
+          location_url: nextProfile.location_url || "",
+          photo_url: nextProfile.photo_url || "",
+          portfolio: arrayToText(nextProfile.portfolio),
+        });
+      } catch (err) {
+        if (alive) {
+          setError(
+            err.message || "Barber profilingiz topilmadi. Qayta login qiling yoki barber sifatida ro‘yxatdan o‘ting."
+          );
+        }
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+
+    loadProfile();
+
+    return () => {
+      alive = false;
+    };
+  }, [isBarber, telegramId]);
+
+  function update(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function saveProfile(e) {
+    e.preventDefault();
+
+    if (profile?.status === "rejected") {
+      setError("Rad etilgan profilni tahrirlash uchun admin bilan bog‘laning.");
+      return;
+    }
+
+    setSaving(true);
+    setSuccess("");
+    setError("");
+
+    try {
+      if (!telegramId) {
+        throw new Error("Telegram ID topilmadi. Qayta login qiling.");
+      }
+
+      const result = await updateMyBarberProfile({
+        telegram_id: telegramId,
+        name: form.name,
+        area: form.area,
+        services: form.services,
+        starting_price: Number(form.starting_price || 0),
+        experience_years: Number(form.experience_years || 0),
+        bio: form.bio,
+        instagram: form.instagram,
+        location_url: form.location_url,
+        photo_url: form.photo_url,
+        portfolio: form.portfolio,
+      });
+
+      const nextProfile = normalizeBarber(result);
+      setProfile(nextProfile);
+      setForm((prev) => ({
+        ...prev,
+        name: nextProfile.name || "",
+        area: nextProfile.area || "",
+        services: nextProfile.services.join(", "),
+        starting_price: Number(nextProfile.starting_price || 0),
+        experience_years: Number(nextProfile.experience_years || 0),
+        bio: nextProfile.bio || "",
+        instagram: nextProfile.instagram || "",
+        location_url: nextProfile.location_url || "",
+        photo_url: nextProfile.photo_url || "",
+        portfolio: arrayToText(nextProfile.portfolio),
+      }));
+      setSuccess("Profil saqlandi. Kabinetga o‘tilmoqda...");
+      setTimeout(onSaved, 400);
+    } catch (err) {
+      setError(err.message || "Profilni saqlashda xatolik");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const isRejected = profile?.status === "rejected";
+
+  if (!isBarber) {
+    return (
+      <main className="app">
+        <section className="panel">
+          <h1>Profilni tahrirlash</h1>
+          <div className="notice error">Barber sifatida kirishingiz kerak.</div>
+          <button className="primary full" onClick={onBack}>
+            Kabinetga qaytish
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className="app">
+      <button className="back" onClick={onBack}>
+        <ArrowLeft size={18} /> Kabinetga qaytish
+      </button>
+
+      <section className="hero">
+        <div className="pill">Profil sozlamalari</div>
+        <h1>Barber profilini tahrirlash</h1>
+        <p>{profile ? getStatusText(profile.status) : "Profil ma’lumotlarini to‘ldiring."}</p>
+      </section>
+
+      <section className="panel">
         {loading ? (
           <div className="loading">Yuklanmoqda...</div>
         ) : (
@@ -801,56 +1003,13 @@ function BarberDashboard({ user, onHome, onLogout }) {
               disabled={isRejected}
             />
 
+            {error && <div className="notice error">{error}</div>}
+            {success && <div className="notice">{success}</div>}
+
             <button className="primary full" disabled={saving || isRejected}>
-              {saving ? "Saqlanmoqda..." : "Profilni saqlash"}
+              {saving ? "Saqlanmoqda..." : "Saqlash"}
             </button>
           </form>
-        )}
-      </section>
-
-      <section className="panel">
-        <h2>Portfolio</h2>
-        {profile?.portfolio?.length ? (
-          <div className="gallery">
-            {profile.portfolio.map((src, i) => (
-              <img key={src || i} src={src} alt={`portfolio ${i + 1}`} />
-            ))}
-          </div>
-        ) : (
-          <p className="muted">Portfolio rasmlari hali qo‘shilmagan.</p>
-        )}
-      </section>
-
-      <section className="panel">
-        <div className="sectionTitle">
-          <h2>Bookinglar</h2>
-          <button className="secondary compact" onClick={loadBookings} disabled={bookingsLoading}>
-            {bookingsLoading ? "Yuklanmoqda..." : "Yangilash"}
-          </button>
-        </div>
-
-        {bookingsError && <div className="notice error">{bookingsError}</div>}
-
-        {bookingsLoading ? (
-          <div className="loading">Bookinglar yuklanmoqda...</div>
-        ) : bookings.length ? (
-          <div className="cards">
-            {bookings.map((booking) => (
-              <div className="bookingBox" key={booking.id}>
-                <b>{booking.customer_name || "Mijoz"}</b>
-                <p>{booking.service || "Xizmat ko‘rsatilmagan"}</p>
-                <p>
-                  <Calendar size={15} /> {booking.date || "-"} · {booking.time || "-"}
-                </p>
-                <p>Telefon: {booking.phone || "-"}</p>
-                <p>Status: <b>{booking.status || "waiting_confirmation"}</b></p>
-                {booking.telegram_username && <p>Telegram: @{booking.telegram_username}</p>}
-                {booking.comment && <p>Izoh: {booking.comment}</p>}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="muted">Hozircha bookinglar yo‘q.</p>
         )}
       </section>
     </main>
