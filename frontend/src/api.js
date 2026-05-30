@@ -60,3 +60,17 @@ export async function fetchBarbers({ q = "", area = "", service = "" } = {}) {
 
   return Array.isArray(json) ? json : json.data || [];
 }
+
+export async function fetchMyBarberProfile(telegramId) {
+  const json = await api(`/api/barbers/me?telegram_id=${telegramId}`);
+  return json?.data || json;
+}
+
+export async function updateMyBarberProfile(payload) {
+  const json = await api("/api/barbers/me", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+  return json?.data || json;
+}

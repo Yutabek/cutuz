@@ -300,6 +300,7 @@ const barberProfileSchema = z.object({
   instagram: z.string().nullable().optional(),
   location_url: z.string().nullable().optional(),
   photo_url: z.string().nullable().optional(),
+  portfolio: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
 app.patch('/api/barbers/me', async (req, res, next) => {
@@ -322,6 +323,7 @@ app.patch('/api/barbers/me', async (req, res, next) => {
     if (data.instagram !== undefined) assign('instagram', data.instagram?.trim() || null);
     if (data.location_url !== undefined) assign('location_url', data.location_url?.trim() || null);
     if (data.photo_url !== undefined) assign('photo_url', data.photo_url?.trim() || null);
+    if (data.portfolio !== undefined) assign('portfolio', JSON.stringify(normalizeServicesInput(data.portfolio)));
 
     params.push(data.telegram_id);
 

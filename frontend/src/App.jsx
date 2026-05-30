@@ -9,7 +9,14 @@ import {
   Send,
   CheckCircle2,
 } from "lucide-react";
-import { API_URL, api, fetchBarbers, track } from "./api.js";
+import {
+  API_URL,
+  api,
+  fetchBarbers,
+  fetchMyBarberProfile,
+  track,
+  updateMyBarberProfile,
+} from "./api.js";
 
 const AREAS = [
   "all",
@@ -60,6 +67,10 @@ function getStoredUser() {
   }
 }
 
+function getAuthUser(data) {
+  return data?.user || data?.data?.user || data;
+}
+
 function toArray(value) {
   if (Array.isArray(value)) return value;
 
@@ -99,10 +110,15 @@ function normalizeBarber(barber) {
   };
 }
 
+function arrayToText(value) {
+  return toArray(value).join("\n");
+}
+
 function getStatusText(status) {
   return {
-    pending: "Profilingiz admin tasdig‘ini kutmoqda",
-    approved: "Profilingiz tasdiqlangan va umumiy ro‘yxatda ko‘rinadi",
+    pending:
+      "Profilingiz admin tasdig‘ini kutmoqda. Profilingizni to‘ldirib qo‘yishingiz mumkin.",
+    approved: "Profilingiz tasdiqlangan. Siz umumiy ro‘yxatda ko‘rinasiz.",
     rejected: "Profilingiz rad etilgan. Admin bilan bog‘laning",
   }[status] || `Profil statusi: ${status || "pending"}`;
 }
@@ -379,8 +395,15 @@ function Login({ onLogin }) {
         return;
       }
 
-      localStorage.setItem("cutuz_user", JSON.stringify(data.user));
-      onLogin(data.user);
+      const authUser = getAuthUser(data);
+
+      if (!authUser?.role) {
+        setAuthError("Login javobida user role topilmadi");
+        return;
+      }
+
+      localStorage.setItem("cutuz_user", JSON.stringify(authUser));
+      onLogin(authUser);
     } catch (err) {
       setAuthError(err.message || "Kirishda xatolik");
     } finally {
@@ -451,6 +474,7 @@ function BarberDashboard({ user, onHome, onLogout }) {
     instagram: "",
     location_url: "",
     photo_url: "",
+    portfolio: "",
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -469,8 +493,8 @@ function BarberDashboard({ user, onHome, onLogout }) {
           throw new Error("Telegram ID topilmadi. Qayta login qiling.");
         }
 
-        const result = await api(`/api/barbers/me?telegram_id=${telegramId}`);
-        const nextProfile = normalizeBarber(result?.data || result);
+        const result = await fetchMyBarberProfile(telegramId);
+        const nextProfile = normalizeBarber(result);
 
         if (!alive) return;
 
@@ -485,6 +509,7 @@ function BarberDashboard({ user, onHome, onLogout }) {
           instagram: nextProfile.instagram || "",
           location_url: nextProfile.location_url || "",
           photo_url: nextProfile.photo_url || "",
+          portfolio: arrayToText(nextProfile.portfolio),
         });
       } catch (err) {
         if (alive) setError(err.message || "Profilni yuklab bo‘lmadi");
@@ -521,23 +546,21 @@ function BarberDashboard({ user, onHome, onLogout }) {
         throw new Error("Telegram ID topilmadi. Qayta login qiling.");
       }
 
-      const result = await api("/api/barbers/me", {
-        method: "PATCH",
-        body: JSON.stringify({
-          telegram_id: telegramId,
-          name: form.name,
-          area: form.area,
-          services: form.services,
-          starting_price: Number(form.starting_price || 0),
-          experience_years: Number(form.experience_years || 0),
-          bio: form.bio,
-          instagram: form.instagram,
-          location_url: form.location_url,
-          photo_url: form.photo_url,
-        }),
+      const result = await updateMyBarberProfile({
+        telegram_id: telegramId,
+        name: form.name,
+        area: form.area,
+        services: form.services,
+        starting_price: Number(form.starting_price || 0),
+        experience_years: Number(form.experience_years || 0),
+        bio: form.bio,
+        instagram: form.instagram,
+        location_url: form.location_url,
+        photo_url: form.photo_url,
+        portfolio: form.portfolio,
       });
 
-      const nextProfile = normalizeBarber(result?.data || result);
+      const nextProfile = normalizeBarber(result);
       setProfile(nextProfile);
       setForm((prev) => ({
         ...prev,
@@ -550,6 +573,7 @@ function BarberDashboard({ user, onHome, onLogout }) {
         instagram: nextProfile.instagram || "",
         location_url: nextProfile.location_url || "",
         photo_url: nextProfile.photo_url || "",
+        portfolio: arrayToText(nextProfile.portfolio),
       }));
       setMessage("Profil saqlandi");
     } catch (err) {
@@ -679,6 +703,14 @@ function BarberDashboard({ user, onHome, onLogout }) {
               disabled={isRejected}
             />
 
+            <label>Portfolio rasmlar</label>
+            <textarea
+              value={form.portfolio}
+              onChange={(e) => update("portfolio", e.target.value)}
+              placeholder="Har bir rasm URL manzilini yangi qatordan kiriting"
+              disabled={isRejected}
+            />
+
             <button className="primary full" disabled={saving || isRejected}>
               {saving ? "Saqlanmoqda..." : "Profilni saqlash"}
             </button>
@@ -686,10 +718,23 @@ function BarberDashboard({ user, onHome, onLogout }) {
         )}
       </section>
 
+      <section className="panel">
+        <h2>Portfolio</h2>
+        {profile?.portfolio?.length ? (
+          <div className="gallery">
+            {profile.portfolio.map((src, i) => (
+              <img key={src || i} src={src} alt={`portfolio ${i + 1}`} />
+            ))}
+          </div>
+        ) : (
+          <p className="muted">Portfolio rasmlari hali qo‘shilmagan.</p>
+        )}
+      </section>
+
       {status === "approved" && (
         <section className="panel">
           <h2>Bookinglar</h2>
-          <p className="muted">Bookinglar hali ulanmagan.</p>
+          <p className="muted">Bookinglar bo‘limi keyingi bosqichda ulanadi.</p>
         </section>
       )}
     </main>
