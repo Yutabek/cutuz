@@ -41,7 +41,7 @@ a { color: inherit; }
 .pill { display: inline-flex; padding: 8px 12px; border-radius: 999px; background: rgba(217,154,43,0.13); color: var(--accent2); font-size: 13px; }
 .heroActions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
-.primary, .secondary, .chip, .back, .tabs button, .searchBox button {
+.primary, .secondary, .chip, .back, .tabs button, .searchBox button, .dashboardShortcut {
   border-radius: 16px;
   padding: 12px 14px;
   min-height: 46px;
@@ -52,8 +52,19 @@ a { color: inherit; }
 }
 .primary { background: var(--accent); color: #17120a; font-weight: 800; }
 .secondary { background: rgba(255,255,255,0.08); color: var(--text); border: 1px solid var(--border); }
+.compact { min-height: 38px; padding: 8px 10px; }
 .full { width: 100%; }
 .back { background: transparent; color: var(--muted); padding-left: 0; }
+.dashboardShortcut {
+  position: fixed;
+  right: 14px;
+  bottom: 16px;
+  z-index: 20;
+  background: var(--accent);
+  color: #17120a;
+  font-weight: 800;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+}
 
 .quickStats {
   display: grid;

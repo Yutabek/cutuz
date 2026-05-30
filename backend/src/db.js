@@ -91,13 +91,13 @@ export async function initDb() {
   await pool.query(`
     UPDATE barbers
     SET status = 'pending'
-    WHERE status IS NULL OR TRIM(status) = ''
+    WHERE status IS NULL OR TRIM(status::text) = ''
   `);
 
   await pool.query(`
     UPDATE barbers
     SET status = 'pending'
-    WHERE status NOT IN ('pending', 'approved', 'rejected')
+    WHERE status::text NOT IN ('pending', 'approved', 'rejected')
   `);
 
   await pool.query(`
@@ -110,7 +110,7 @@ export async function initDb() {
   await pool.query(`
     ALTER TABLE barbers
       ADD CONSTRAINT barbers_status_check
-      CHECK (status IN ('pending', 'approved', 'rejected'))
+      CHECK (status::text IN ('pending', 'approved', 'rejected'))
   `);
 
   await pool.query(`

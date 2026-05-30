@@ -74,3 +74,8 @@ export async function updateMyBarberProfile(payload) {
 
   return json?.data || json;
 }
+
+export async function fetchMyBarberBookings(telegramId) {
+  const json = await api(`/api/barbers/me/bookings?telegram_id=${telegramId}`);
+  return Array.isArray(json) ? json : json?.data || [];
+}

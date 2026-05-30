@@ -13,6 +13,7 @@ import {
   API_URL,
   api,
   fetchBarbers,
+  fetchMyBarberBookings,
   fetchMyBarberProfile,
   track,
   updateMyBarberProfile,
@@ -123,6 +124,16 @@ function getStatusText(status) {
   }[status] || `Profil statusi: ${status || "pending"}`;
 }
 
+function BarberDashboardShortcut({ user, onOpen }) {
+  if (user?.role !== "barber") return null;
+
+  return (
+    <button className="dashboardShortcut" onClick={onOpen}>
+      Barber kabinet
+    </button>
+  );
+}
+
 function App() {
   const [user, setUser] = useState(getStoredUser);
   const [page, setPage] = useState(() =>
@@ -195,43 +206,77 @@ function App() {
     return <Login onLogin={handleLogin} />;
   }
 
+  const shortcut = (
+    <BarberDashboardShortcut
+      user={user}
+      onOpen={() => setPage("barber-dashboard")}
+    />
+  );
+
   if (page === "barber-dashboard") {
-    return <BarberDashboard user={user} onHome={() => setPage("home")} onLogout={logout} />;
+    return (
+      <>
+        <BarberDashboard user={user} onHome={() => setPage("home")} onLogout={logout} />
+        {shortcut}
+      </>
+    );
   }
 
   if (page === "profile" && selectedBarber) {
     return (
-      <Profile
-        barber={selectedBarber}
-        onBack={() => setPage("home")}
-        onBook={() => setPage("booking")}
-      />
+      <>
+        <Profile
+          barber={selectedBarber}
+          onBack={() => setPage("home")}
+          onBook={() => setPage("booking")}
+        />
+        {shortcut}
+      </>
     );
   }
 
   if (page === "booking" && selectedBarber) {
     return (
-      <Booking
-        barber={selectedBarber}
-        onBack={() => setPage("profile")}
-        onSuccess={() => setPage("success")}
-      />
+      <>
+        <Booking
+          barber={selectedBarber}
+          onBack={() => setPage("profile")}
+          onSuccess={() => setPage("success")}
+        />
+        {shortcut}
+      </>
     );
   }
 
   if (page === "success") {
-    return <Success onHome={() => setPage("home")} />;
+    return (
+      <>
+        <Success onHome={() => setPage("home")} />
+        {shortcut}
+      </>
+    );
   }
 
   if (page === "barberApply") {
-    return <BarberApply onBack={() => setPage("home")} />;
+    return (
+      <>
+        <BarberApply onBack={() => setPage("home")} />
+        {shortcut}
+      </>
+    );
   }
 
   if (page === "myBooking") {
-    return <MyBooking onBack={() => setPage("home")} />;
+    return (
+      <>
+        <MyBooking onBack={() => setPage("home")} />
+        {shortcut}
+      </>
+    );
   }
 
   return (
+    <>
     <main className="app">
       <section className="hero">
         <div className="pill">Tashkent barber booking MVP</div>
@@ -348,6 +393,8 @@ function App() {
         )}
       </section>
     </main>
+    {shortcut}
+    </>
   );
 }
 
@@ -461,8 +508,9 @@ function Login({ onLogin }) {
 }
 
 function BarberDashboard({ user, onHome, onLogout }) {
+  const isBarber = user?.role === "barber";
   const telegramId =
-    user?.telegram_id || user?.telegramId || getTgUser()?.id || "";
+    isBarber ? user?.telegram_id || user?.telegramId || getTgUser()?.id || "" : "";
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({
     name: "",
@@ -477,6 +525,9 @@ function BarberDashboard({ user, onHome, onLogout }) {
     portfolio: "",
   });
   const [loading, setLoading] = useState(true);
+  const [bookingsLoading, setBookingsLoading] = useState(false);
+  const [bookings, setBookings] = useState([]);
+  const [bookingsError, setBookingsError] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -489,16 +540,23 @@ function BarberDashboard({ user, onHome, onLogout }) {
       setError("");
 
       try {
+        if (!isBarber) {
+          throw new Error("Barber sifatida kirishingiz kerak.");
+        }
+
         if (!telegramId) {
           throw new Error("Telegram ID topilmadi. Qayta login qiling.");
         }
 
         const result = await fetchMyBarberProfile(telegramId);
+        const bookingRows = await fetchMyBarberBookings(telegramId);
         const nextProfile = normalizeBarber(result);
 
         if (!alive) return;
 
         setProfile(nextProfile);
+        setBookings(bookingRows);
+        setBookingsError("");
         setForm({
           name: nextProfile.name || "",
           area: nextProfile.area || "",
@@ -523,10 +581,28 @@ function BarberDashboard({ user, onHome, onLogout }) {
     return () => {
       alive = false;
     };
-  }, [telegramId]);
+  }, [isBarber, telegramId]);
 
   function update(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function loadBookings() {
+    setBookingsLoading(true);
+    setBookingsError("");
+
+    try {
+      if (!telegramId) {
+        throw new Error("Telegram ID topilmadi. Qayta login qiling.");
+      }
+
+      const bookingRows = await fetchMyBarberBookings(telegramId);
+      setBookings(bookingRows);
+    } catch (err) {
+      setBookingsError(err.message || "Bookinglarni yuklab bo‘lmadi");
+    } finally {
+      setBookingsLoading(false);
+    }
   }
 
   async function saveProfile(e) {
@@ -581,6 +657,20 @@ function BarberDashboard({ user, onHome, onLogout }) {
     } finally {
       setSaving(false);
     }
+  }
+
+  if (!isBarber) {
+    return (
+      <main className="app">
+        <section className="panel">
+          <h1>Barber kabinet</h1>
+          <div className="notice error">Barber sifatida kirishingiz kerak.</div>
+          <button className="primary full" onClick={onHome}>
+            Bosh sahifa
+          </button>
+        </section>
+      </main>
+    );
   }
 
   const status = profile?.status || "pending";
@@ -731,12 +821,38 @@ function BarberDashboard({ user, onHome, onLogout }) {
         )}
       </section>
 
-      {status === "approved" && (
-        <section className="panel">
+      <section className="panel">
+        <div className="sectionTitle">
           <h2>Bookinglar</h2>
-          <p className="muted">Bookinglar bo‘limi keyingi bosqichda ulanadi.</p>
-        </section>
-      )}
+          <button className="secondary compact" onClick={loadBookings} disabled={bookingsLoading}>
+            {bookingsLoading ? "Yuklanmoqda..." : "Yangilash"}
+          </button>
+        </div>
+
+        {bookingsError && <div className="notice error">{bookingsError}</div>}
+
+        {bookingsLoading ? (
+          <div className="loading">Bookinglar yuklanmoqda...</div>
+        ) : bookings.length ? (
+          <div className="cards">
+            {bookings.map((booking) => (
+              <div className="bookingBox" key={booking.id}>
+                <b>{booking.customer_name || "Mijoz"}</b>
+                <p>{booking.service || "Xizmat ko‘rsatilmagan"}</p>
+                <p>
+                  <Calendar size={15} /> {booking.date || "-"} · {booking.time || "-"}
+                </p>
+                <p>Telefon: {booking.phone || "-"}</p>
+                <p>Status: <b>{booking.status || "waiting_confirmation"}</b></p>
+                {booking.telegram_username && <p>Telegram: @{booking.telegram_username}</p>}
+                {booking.comment && <p>Izoh: {booking.comment}</p>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">Hozircha bookinglar yo‘q.</p>
+        )}
+      </section>
     </main>
   );
 }

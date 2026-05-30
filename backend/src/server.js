@@ -431,6 +431,50 @@ app.patch('/api/admin/barbers/:id/reject', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+app.get('/api/barbers/me/bookings', async (req, res, next) => {
+  try {
+    const telegramId = req.query.telegram_id;
+
+    if (!telegramId) {
+      return res.status(400).json({ ok: false, error: 'telegram_id required' });
+    }
+
+    const barberResult = await pool.query(
+      'SELECT id FROM barbers WHERE telegram_id = $1 LIMIT 1',
+      [telegramId]
+    );
+
+    if (!barberResult.rows[0]) {
+      return res.status(404).json({ ok: false, error: 'Barber profile not found' });
+    }
+
+    const bookingResult = await pool.query(
+      `
+      SELECT
+        id,
+        telegram_user_id,
+        telegram_username,
+        barber_id,
+        barber_name,
+        service,
+        date,
+        time,
+        customer_name,
+        phone,
+        comment,
+        status,
+        created_at
+      FROM bookings
+      WHERE barber_id = $1
+      ORDER BY created_at DESC NULLS LAST, date DESC NULLS LAST, time DESC NULLS LAST, id DESC
+      `,
+      [barberResult.rows[0].id]
+    );
+
+    return res.json({ ok: true, data: bookingResult.rows });
+  } catch (err) { next(err); }
+});
+
 app.get('/api/barbers/:id', async (req, res, next) => {
   try {
     const row = await get('SELECT * FROM barbers WHERE id = ? AND status = ? AND is_active = 1', [req.params.id, 'approved']);

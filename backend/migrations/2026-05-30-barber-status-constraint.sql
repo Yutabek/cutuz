@@ -3,11 +3,11 @@ ALTER TABLE public.barbers
 
 UPDATE public.barbers
 SET status = 'pending'
-WHERE status IS NULL OR TRIM(status) = '';
+WHERE status IS NULL OR TRIM(status::text) = '';
 
 UPDATE public.barbers
 SET status = 'pending'
-WHERE status NOT IN ('pending', 'approved', 'rejected');
+WHERE status::text NOT IN ('pending', 'approved', 'rejected');
 
 ALTER TABLE public.barbers
   ALTER COLUMN status SET DEFAULT 'pending';
@@ -17,7 +17,7 @@ ALTER TABLE public.barbers
 
 ALTER TABLE public.barbers
   ADD CONSTRAINT barbers_status_check
-  CHECK (status IN ('pending', 'approved', 'rejected'));
+  CHECK (status::text IN ('pending', 'approved', 'rejected'));
 
 ALTER TABLE public.barbers
   ADD COLUMN IF NOT EXISTS is_active INTEGER DEFAULT 0;
