@@ -117,7 +117,8 @@ function selectBarberProfileSql(whereClause) {
       location_url,
       photo_url,
       portfolio,
-      reviews
+      reviews,
+      created_at
     FROM barbers
     WHERE ${whereClause}
   `;
@@ -287,11 +288,14 @@ app.get('/api/barbers/me', async (req, res, next) => {
 
 const barberProfileSchema = z.object({
   telegram_id: z.coerce.number(),
-  name: z.string().min(2).nullable().optional(),
-  area: z.string().nullable().optional(),
-  services: z.union([z.string(), z.array(z.string())]).optional(),
-  starting_price: z.coerce.number().min(0).optional(),
-  experience_years: z.coerce.number().min(0).optional(),
+  name: z.string().trim().min(2),
+  area: z.string().trim().min(1),
+  services: z.union([z.string(), z.array(z.string())]).refine(
+    (value) => normalizeServicesInput(value).length > 0,
+    'services is required'
+  ),
+  starting_price: z.coerce.number().min(0),
+  experience_years: z.coerce.number().min(0),
   bio: z.string().nullable().optional(),
   instagram: z.string().nullable().optional(),
   location_url: z.string().nullable().optional(),
@@ -309,19 +313,15 @@ app.patch('/api/barbers/me', async (req, res, next) => {
       updates.push(`${column} = $${params.length}`);
     };
 
-    if (data.name !== undefined) assign('name', data.name?.trim() || 'New Barber');
-    if (data.area !== undefined) assign('area', data.area?.trim() || '');
-    if (data.services !== undefined) assign('services', JSON.stringify(normalizeServicesInput(data.services)));
-    if (data.starting_price !== undefined) assign('starting_price', data.starting_price);
-    if (data.experience_years !== undefined) assign('experience_years', data.experience_years);
+    assign('name', data.name.trim());
+    assign('area', data.area.trim());
+    assign('services', JSON.stringify(normalizeServicesInput(data.services)));
+    assign('starting_price', data.starting_price);
+    assign('experience_years', data.experience_years);
     if (data.bio !== undefined) assign('bio', data.bio?.trim() || null);
     if (data.instagram !== undefined) assign('instagram', data.instagram?.trim() || null);
     if (data.location_url !== undefined) assign('location_url', data.location_url?.trim() || null);
     if (data.photo_url !== undefined) assign('photo_url', data.photo_url?.trim() || null);
-
-    if (!updates.length) {
-      return res.status(400).json({ error: 'No profile fields to update' });
-    }
 
     params.push(data.telegram_id);
 
@@ -348,7 +348,8 @@ app.patch('/api/barbers/me', async (req, res, next) => {
         location_url,
         photo_url,
         portfolio,
-        reviews
+        reviews,
+        created_at
       `,
       params
     );
@@ -358,6 +359,21 @@ app.patch('/api/barbers/me', async (req, res, next) => {
     }
 
     return res.json({ ok: true, data: mapBarber(result.rows[0]) });
+  } catch (err) { next(err); }
+});
+
+app.get('/api/admin/barbers/pending', async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `
+      ${selectBarberProfileSql('status = $1 AND is_active = 0')}
+      ORDER BY created_at DESC NULLS LAST, id DESC
+      LIMIT 100
+      `,
+      ['pending']
+    );
+
+    return res.json({ ok: true, data: result.rows.map(mapBarber) });
   } catch (err) { next(err); }
 });
 
@@ -386,7 +402,8 @@ app.patch('/api/admin/barbers/:id/approve', async (req, res, next) => {
         location_url,
         photo_url,
         portfolio,
-        reviews
+        reviews,
+        created_at
       `,
       [req.params.id]
     );
@@ -447,7 +464,7 @@ app.post('/api/bookings', async (req, res, next) => {
       customerName: req.body.customerName || req.body.customer_name,
     };
     const data = bookingSchema.parse(body);
-    const barber = await get('SELECT * FROM barbers WHERE id = ? AND is_active = 1', [data.barberId]);
+    const barber = await get('SELECT * FROM barbers WHERE id = ? AND status = ? AND is_active = 1', [data.barberId, 'approved']);
     if (!barber) return res.status(404).json({ error: 'Barber not found' });
 
     let tgUser = null;

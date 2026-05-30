@@ -72,7 +72,8 @@ export async function initDb() {
       photo_url TEXT,
       portfolio TEXT,
       reviews TEXT,
-      is_active INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'pending',
+      is_active INTEGER DEFAULT 0,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
@@ -82,8 +83,34 @@ export async function initDb() {
       ADD COLUMN IF NOT EXISTS telegram_id BIGINT UNIQUE,
       ADD COLUMN IF NOT EXISTS username TEXT,
       ADD COLUMN IF NOT EXISTS phone TEXT,
-      ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'approved',
+      ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS is_active INTEGER DEFAULT 0,
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()
+  `);
+
+  await pool.query(`
+    UPDATE barbers
+    SET status = 'pending'
+    WHERE status IS NULL OR TRIM(status) = ''
+  `);
+
+  await pool.query(`
+    UPDATE barbers
+    SET status = 'pending'
+    WHERE status NOT IN ('pending', 'approved', 'rejected')
+  `);
+
+  await pool.query(`
+    ALTER TABLE barbers
+      ALTER COLUMN status SET DEFAULT 'pending',
+      ALTER COLUMN is_active SET DEFAULT 0
+  `);
+
+  await pool.query('ALTER TABLE barbers DROP CONSTRAINT IF EXISTS barbers_status_check');
+  await pool.query(`
+    ALTER TABLE barbers
+      ADD CONSTRAINT barbers_status_check
+      CHECK (status IN ('pending', 'approved', 'rejected'))
   `);
 
   await pool.query(`
@@ -131,5 +158,6 @@ export async function initDb() {
 
   await pool.query('CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_barbers_telegram_id ON barbers(telegram_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_barbers_status_active ON barbers(status, is_active)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_bookings_barber_time ON bookings(barber_id, date, time)');
 }

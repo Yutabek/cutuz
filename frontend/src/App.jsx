@@ -37,6 +37,7 @@ const TIMES = [
 
 function formatPrice(value) {
   const number = Number(value || 0);
+  if (!number) return "Narx to‘ldirilmagan";
   return new Intl.NumberFormat("uz-UZ").format(number) + " UZS";
 }
 
@@ -96,6 +97,14 @@ function normalizeBarber(barber) {
       barber.image_url ||
       "https://images.unsplash.com/photo-1621605815971-fbc98d665033",
   };
+}
+
+function getStatusText(status) {
+  return {
+    pending: "Profilingiz admin tasdig‘ini kutmoqda",
+    approved: "Profilingiz tasdiqlangan va umumiy ro‘yxatda ko‘rinadi",
+    rejected: "Profilingiz rad etilgan. Admin bilan bog‘laning",
+  }[status] || `Profil statusi: ${status || "pending"}`;
 }
 
 function App() {
@@ -497,6 +506,12 @@ function BarberDashboard({ user, onHome, onLogout }) {
 
   async function saveProfile(e) {
     e.preventDefault();
+
+    if (profile?.status === "rejected") {
+      setError("Rad etilgan profilni tahrirlash uchun admin bilan bog‘laning.");
+      return;
+    }
+
     setSaving(true);
     setMessage("");
     setError("");
@@ -526,7 +541,15 @@ function BarberDashboard({ user, onHome, onLogout }) {
       setProfile(nextProfile);
       setForm((prev) => ({
         ...prev,
+        name: nextProfile.name || "",
+        area: nextProfile.area || "",
         services: nextProfile.services.join(", "),
+        starting_price: Number(nextProfile.starting_price || 0),
+        experience_years: Number(nextProfile.experience_years || 0),
+        bio: nextProfile.bio || "",
+        instagram: nextProfile.instagram || "",
+        location_url: nextProfile.location_url || "",
+        photo_url: nextProfile.photo_url || "",
       }));
       setMessage("Profil saqlandi");
     } catch (err) {
@@ -537,11 +560,8 @@ function BarberDashboard({ user, onHome, onLogout }) {
   }
 
   const status = profile?.status || "pending";
-  const statusText = {
-    pending: "Profilingiz admin tasdig‘ini kutmoqda",
-    approved: "Profilingiz tasdiqlangan va umumiy ro‘yxatda ko‘rinadi",
-    rejected: "Profilingiz rad etilgan",
-  }[status] || `Profil statusi: ${status}`;
+  const isRejected = status === "rejected";
+  const statusText = getStatusText(status);
 
   return (
     <main className="app">
@@ -557,6 +577,15 @@ function BarberDashboard({ user, onHome, onLogout }) {
         <p className="muted">Telegram ID: {telegramId || "-"}</p>
         <p className="muted">Telefon: {profile?.phone || user?.phone || "-"}</p>
         {profile && <p className="muted">Status: {profile.status} · Active: {String(profile.is_active)}</p>}
+        {status === "pending" && (
+          <p className="muted">Profilingizni hozirdan to‘ldirishingiz mumkin. Public ro‘yxatda admin tasdiqlagandan keyin ko‘rinadi.</p>
+        )}
+        {status === "approved" && (
+          <p className="muted">Profilingiz mijozlar ro‘yxatida ko‘rinadi. Ma’lumotlarni yangilab boring.</p>
+        )}
+        {status === "rejected" && (
+          <p className="muted">Profil ma’lumotlari read-only. Qayta ko‘rib chiqish uchun admin bilan bog‘laning.</p>
+        )}
         {error && <div className="notice error">{error}</div>}
         {message && <div className="notice">{message}</div>}
         <div className="cardActions">
@@ -579,6 +608,7 @@ function BarberDashboard({ user, onHome, onLogout }) {
             <input
               value={form.name}
               onChange={(e) => update("name", e.target.value)}
+              disabled={isRejected}
               required
             />
 
@@ -587,6 +617,8 @@ function BarberDashboard({ user, onHome, onLogout }) {
               value={form.area}
               onChange={(e) => update("area", e.target.value)}
               placeholder="Chilonzor"
+              disabled={isRejected}
+              required
             />
 
             <label>Xizmatlar</label>
@@ -594,6 +626,8 @@ function BarberDashboard({ user, onHome, onLogout }) {
               value={form.services}
               onChange={(e) => update("services", e.target.value)}
               placeholder="Haircut, Beard trim"
+              disabled={isRejected}
+              required
             />
 
             <label>Boshlang‘ich narx</label>
@@ -601,6 +635,8 @@ function BarberDashboard({ user, onHome, onLogout }) {
               type="number"
               value={form.starting_price}
               onChange={(e) => update("starting_price", e.target.value)}
+              disabled={isRejected}
+              required
             />
 
             <label>Tajriba yili</label>
@@ -608,6 +644,7 @@ function BarberDashboard({ user, onHome, onLogout }) {
               type="number"
               value={form.experience_years}
               onChange={(e) => update("experience_years", e.target.value)}
+              disabled={isRejected}
             />
 
             <label>Bio</label>
@@ -615,6 +652,7 @@ function BarberDashboard({ user, onHome, onLogout }) {
               value={form.bio}
               onChange={(e) => update("bio", e.target.value)}
               placeholder="Qisqa ta’rif"
+              disabled={isRejected}
             />
 
             <label>Instagram</label>
@@ -622,6 +660,7 @@ function BarberDashboard({ user, onHome, onLogout }) {
               value={form.instagram}
               onChange={(e) => update("instagram", e.target.value)}
               placeholder="@username"
+              disabled={isRejected}
             />
 
             <label>Location URL</label>
@@ -629,6 +668,7 @@ function BarberDashboard({ user, onHome, onLogout }) {
               value={form.location_url}
               onChange={(e) => update("location_url", e.target.value)}
               placeholder="https://maps.google.com/..."
+              disabled={isRejected}
             />
 
             <label>Photo URL</label>
@@ -636,14 +676,22 @@ function BarberDashboard({ user, onHome, onLogout }) {
               value={form.photo_url}
               onChange={(e) => update("photo_url", e.target.value)}
               placeholder="https://..."
+              disabled={isRejected}
             />
 
-            <button className="primary full" disabled={saving}>
+            <button className="primary full" disabled={saving || isRejected}>
               {saving ? "Saqlanmoqda..." : "Profilni saqlash"}
             </button>
           </form>
         )}
       </section>
+
+      {status === "approved" && (
+        <section className="panel">
+          <h2>Bookinglar</h2>
+          <p className="muted">Bookinglar hali ulanmagan.</p>
+        </section>
+      )}
     </main>
   );
 }
@@ -660,12 +708,15 @@ function BarberCard({ barber, onOpen, onBook }) {
           </span>
         </div>
         <p className="muted">
-          <MapPin size={15} /> {barber.area}
+          <MapPin size={15} /> {barber.area || "Hudud to‘ldirilmagan"}
         </p>
         <p className="muted">
-          <Scissors size={15} /> {barber.services.slice(0, 3).join(", ")}
+          <Scissors size={15} />{" "}
+          {barber.services.length
+            ? barber.services.slice(0, 3).join(", ")
+            : "Xizmatlar to‘ldirilmagan"}
         </p>
-        <p className="price">{formatPrice(barber.starting_price)} dan</p>
+        <p className="price">{formatPrice(barber.starting_price)}</p>
         <div className="cardActions">
           <button className="secondary" onClick={onOpen}>
             Profil
